@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { db } from "../services/firebase";
 import { collection, getDocs } from "firebase/firestore";
+import BackButton from "../components/BackButton";
 
 const ViewResults = () => {
   const [attempts, setAttempts] = useState([]);
@@ -22,6 +23,7 @@ const ViewResults = () => {
 
   return (
     <div className="p-6">
+      <BackButton to="/admin/dashboard" className="mb-4" />
       <h2 className="text-2xl font-bold mb-4">Student Results</h2>
 
       <table className="w-full border">

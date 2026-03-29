@@ -3,6 +3,7 @@ import { db } from "../services/firebase";
 import { collection, addDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import BackButton from "../components/BackButton";
 
 const CreateTest = () => {
     const navigate = useNavigate();
@@ -74,6 +75,7 @@ const CreateTest = () => {
 
     return (
         <div className="p-6">
+            <BackButton to="/admin/dashboard" className="mb-4" />
             <h2 className="text-xl font-bold mb-4">Create Test</h2>
 
             <input

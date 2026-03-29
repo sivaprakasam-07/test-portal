@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import toast from "react-hot-toast";
 import { useParams, useNavigate } from "react-router-dom";
+import BackButton from "../components/BackButton";
 
 const TestPage = () => {
     const { testId } = useParams();
@@ -28,6 +29,7 @@ const TestPage = () => {
     const fullscreenAutoSubmitTriggeredRef = useRef(false);
     const timerExpiredTriggeredRef = useRef(false);
     const timerStartedRef = useRef(false);
+    const backConfirmAtRef = useRef(0);
 
     const questionsRef = useRef([]);
     const answersRef = useRef([]);
@@ -152,6 +154,35 @@ const TestPage = () => {
         timeLeftRef.current = timeLeft;
     }, [timeLeft]);
 
+    const isTestActive = () => {
+        return (
+            !hasSubmittedRef.current &&
+            timerStartedRef.current &&
+            questionsRef.current.length > 0
+        );
+    };
+
+    const handleBackNavigation = () => {
+        if (!isTestActive()) {
+            navigate(-1);
+            return;
+        }
+
+        const now = Date.now();
+
+        if (now - backConfirmAtRef.current > 3000) {
+            backConfirmAtRef.current = now;
+            toast("Leaving will submit your test. Press Back again to confirm.", {
+                icon: "⚠️"
+            });
+            return;
+        }
+
+        backConfirmAtRef.current = 0;
+        toast.error("Submitting test before exit...");
+        handleSubmit(false);
+    };
+
     const handleSubmit = async (showSuccessToast = true) => {
         if (hasSubmittedRef.current) return;
 
@@ -255,6 +286,23 @@ const TestPage = () => {
         };
     }, []);
 
+    useEffect(() => {
+        const handleBeforeUnload = (event) => {
+            if (!isTestActive()) {
+                return;
+            }
+
+            event.preventDefault();
+            event.returnValue = "";
+        };
+
+        window.addEventListener("beforeunload", handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener("beforeunload", handleBeforeUnload);
+        };
+    }, []);
+
     const handleSelect = (qIndex, option) => {
         const updated = [...answers];
         updated[qIndex] = option;
@@ -263,6 +311,7 @@ const TestPage = () => {
 
     return (
         <div className="p-6">
+            <BackButton onClick={handleBackNavigation} className="mb-4" />
             <h2 className="text-xl font-bold mb-4">Test</h2>
 
             {/* Timer */}
