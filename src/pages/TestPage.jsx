@@ -22,6 +22,18 @@ const TestPage = () => {
     const [timeLeft, setTimeLeft] = useState(0);
 
     const tabSwitchCount = useRef(0);
+    const hasSubmittedRef = useRef(false);
+    const tabWarningShownRef = useRef(false);
+    const tabAutoSubmitTriggeredRef = useRef(false);
+    const fullscreenAutoSubmitTriggeredRef = useRef(false);
+    const timerExpiredTriggeredRef = useRef(false);
+    const timerStartedRef = useRef(false);
+
+    const questionsRef = useRef([]);
+    const answersRef = useRef([]);
+    const attemptDocIdRef = useRef(null);
+    const timeLeftRef = useRef(0);
+
     const user = JSON.parse(localStorage.getItem("user"));
 
     const shuffleArray = (array) => {
@@ -83,7 +95,9 @@ const TestPage = () => {
                     });
 
                     setAttemptDocId(newAttempt.id);
+                    attemptDocIdRef.current = newAttempt.id;
                     setQuestions(selected);
+                    questionsRef.current = selected;
 
                 } else {
                     const docData = attemptSnap.docs[0];
@@ -95,7 +109,10 @@ const TestPage = () => {
                     }
 
                     setAttemptDocId(docData.id);
-                    setQuestions(docData.data().assignedQuestions || []);
+                    attemptDocIdRef.current = docData.id;
+                    const assignedQuestions = docData.data().assignedQuestions || [];
+                    setQuestions(assignedQuestions);
+                    questionsRef.current = assignedQuestions;
                 }
 
                 // 🔹 Fetch test duration
@@ -105,7 +122,10 @@ const TestPage = () => {
 
                 if (!testSnap.empty) {
                     const duration = testSnap.docs[0].data().duration;
-                    setTimeLeft(duration * 60);
+                    const totalSeconds = duration * 60;
+                    setTimeLeft(totalSeconds);
+                    timeLeftRef.current = totalSeconds;
+                    timerStartedRef.current = true;
                 }
 
             } catch (error) {
@@ -116,32 +136,94 @@ const TestPage = () => {
         initTest();
     }, [testId]);
 
+    useEffect(() => {
+        questionsRef.current = questions;
+    }, [questions]);
+
+    useEffect(() => {
+        answersRef.current = answers;
+    }, [answers]);
+
+    useEffect(() => {
+        attemptDocIdRef.current = attemptDocId;
+    }, [attemptDocId]);
+
+    useEffect(() => {
+        timeLeftRef.current = timeLeft;
+    }, [timeLeft]);
+
+    const handleSubmit = async (showSuccessToast = true) => {
+        if (hasSubmittedRef.current) return;
+
+        const currentAttemptDocId = attemptDocIdRef.current;
+        if (!currentAttemptDocId) return;
+
+        hasSubmittedRef.current = true;
+
+        let score = 0;
+
+        questionsRef.current.forEach((q, index) => {
+            if (answersRef.current[index] === q.correctAnswer) {
+                score++;
+            }
+        });
+
+        await updateDoc(doc(db, "attempts", currentAttemptDocId), {
+            answers: answersRef.current,
+            score,
+            isCompleted: true,
+            tabSwitchCount: tabSwitchCount.current
+        });
+
+        if (showSuccessToast) {
+            toast.success("Test submitted successfully");
+        }
+        navigate("/tests");
+    };
+
     // ⏱️ Timer
     useEffect(() => {
-        if (timeLeft <= 0 && questions.length > 0) {
-            toast.error("Time's up! Submitting...");
-            handleSubmit();
-            return;
-        }
-
         const timer = setInterval(() => {
-            setTimeLeft((prev) => prev - 1);
+            setTimeLeft((prev) => {
+                if (!timerStartedRef.current || hasSubmittedRef.current) {
+                    return prev;
+                }
+
+                if (prev <= 1) {
+                    if (!timerExpiredTriggeredRef.current && questionsRef.current.length > 0) {
+                        timerExpiredTriggeredRef.current = true;
+                        toast.error("Time's up! Submitting...");
+                        handleSubmit(false);
+                    }
+                    return 0;
+                }
+
+                return prev - 1;
+            });
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [timeLeft]);
+    }, []);
 
     // 🚫 Tab switch
     useEffect(() => {
         const handleVisibilityChange = () => {
-            if (document.hidden) {
-                tabSwitchCount.current++;
-                toast.error("Tab switch detected");
+            if (!document.hidden || hasSubmittedRef.current) {
+                return;
+            }
 
-                if (tabSwitchCount.current > 1) {
-                    toast.error("Cheating detected! Auto submitting...");
-                    handleSubmit();
-                }
+            tabSwitchCount.current++;
+
+            if (!tabWarningShownRef.current) {
+                tabWarningShownRef.current = true;
+                toast.error("Tab switch detected");
+                return;
+            }
+
+            if (!tabAutoSubmitTriggeredRef.current) {
+                tabAutoSubmitTriggeredRef.current = true;
+                toast.error("Cheating detected! Auto submitting...");
+                handleSubmit(false);
             }
         };
 
@@ -154,9 +236,15 @@ const TestPage = () => {
 
     useEffect(() => {
         const handleFullscreenChange = () => {
-            if (!document.fullscreenElement && questions.length > 0) {
+            if (
+                !document.fullscreenElement &&
+                questionsRef.current.length > 0 &&
+                !hasSubmittedRef.current &&
+                !fullscreenAutoSubmitTriggeredRef.current
+            ) {
+                fullscreenAutoSubmitTriggeredRef.current = true;
                 toast.error("Fullscreen exited! Auto submitting...");
-                handleSubmit();
+                handleSubmit(false);
             }
         };
 
@@ -165,34 +253,12 @@ const TestPage = () => {
         return () => {
             document.removeEventListener("fullscreenchange", handleFullscreenChange);
         };
-    }, [questions, attemptDocId, answers]);
+    }, []);
 
     const handleSelect = (qIndex, option) => {
         const updated = [...answers];
         updated[qIndex] = option;
         setAnswers(updated);
-    };
-
-    const handleSubmit = async () => {
-        if (!attemptDocId) return;
-
-        let score = 0;
-
-        questions.forEach((q, index) => {
-            if (answers[index] === q.correctAnswer) {
-                score++;
-            }
-        });
-
-        await updateDoc(doc(db, "attempts", attemptDocId), {
-            answers,
-            score,
-            isCompleted: true,
-            tabSwitchCount: tabSwitchCount.current
-        });
-
-        toast.success("Test submitted successfully");
-        navigate("/tests");
     };
 
     return (
